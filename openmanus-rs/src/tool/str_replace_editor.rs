@@ -708,9 +708,67 @@ impl Tool for StrReplaceEditor {
         })
     }
 
-    async fn execute(&self, _input: &str, _ctx: &mut Context) -> Result<ToolResult, ToolError> {
-        // Will implement in next task
-        Ok(ToolResult::success("Not implemented"))
+    async fn execute(&self, input: &str, _ctx: &mut Context) -> Result<ToolResult, ToolError> {
+        // Parse JSON input
+        let json: serde_json::Value = serde_json::from_str(input).map_err(|e| {
+            ToolError::InvalidInput(format!("Invalid JSON input: {}", e))
+        })?;
+
+        // Parse into EditorInput
+        let editor_input = EditorInput::from_json(&json);
+
+        // Validate command is present
+        let command = editor_input.command.ok_or_else(|| {
+            ToolError::InvalidInput("Missing required parameter: command".to_string())
+        })?;
+
+        // Validate path is present
+        let path_str = editor_input.path.ok_or_else(|| {
+            ToolError::InvalidInput("Missing required parameter: path".to_string())
+        })?;
+
+        // Validate path is absolute
+        let path = Self::validate_absolute_path(&path_str)?;
+
+        // Dispatch to appropriate handler based on command
+        match command {
+            Command::View => self.handle_view(&path, editor_input.view_range).await,
+
+            Command::Create => {
+                let file_text = editor_input.file_text.ok_or_else(|| {
+                    ToolError::InvalidInput(
+                        "Missing required parameter 'file_text' for create command".to_string(),
+                    )
+                })?;
+                self.handle_create(&path, &file_text).await
+            }
+
+            Command::StrReplace => {
+                let old_str = editor_input.old_str.ok_or_else(|| {
+                    ToolError::InvalidInput(
+                        "Missing required parameter 'old_str' for str_replace command".to_string(),
+                    )
+                })?;
+                self.handle_str_replace(&path, &old_str, editor_input.new_str.as_deref())
+                    .await
+            }
+
+            Command::Insert => {
+                let insert_line = editor_input.insert_line.ok_or_else(|| {
+                    ToolError::InvalidInput(
+                        "Missing required parameter 'insert_line' for insert command".to_string(),
+                    )
+                })?;
+                let new_str = editor_input.new_str.ok_or_else(|| {
+                    ToolError::InvalidInput(
+                        "Missing required parameter 'new_str' for insert command".to_string(),
+                    )
+                })?;
+                self.handle_insert(&path, insert_line, &new_str).await
+            }
+
+            Command::UndoEdit => self.handle_undo_edit(&path).await,
+        }
     }
 }
 
@@ -1039,5 +1097,182 @@ mod tests {
         let result = tool.handle_undo_edit(&temp.path().to_path_buf()).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("No edit history"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_full_workflow() {
+        let tool = StrReplaceEditor::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("test.txt");
+        let mut ctx = Context::new();
+
+        // Create file
+        let create_input = serde_json::json!({
+            "command": "create",
+            "path": file_path.to_str().unwrap(),
+            "file_text": "Hello\nWorld"
+        })
+        .to_string();
+        let result = tool.execute(&create_input, &mut ctx).await.unwrap();
+        assert!(result.output.unwrap().contains("created"));
+
+        // View file
+        let view_input = serde_json::json!({
+            "command": "view",
+            "path": file_path.to_str().unwrap()
+        })
+        .to_string();
+        let result = tool.execute(&view_input, &mut ctx).await.unwrap();
+        assert!(result.output.unwrap().contains("Hello"));
+
+        // Replace
+        let replace_input = serde_json::json!({
+            "command": "str_replace",
+            "path": file_path.to_str().unwrap(),
+            "old_str": "Hello",
+            "new_str": "Hi"
+        })
+        .to_string();
+        let result = tool.execute(&replace_input, &mut ctx).await.unwrap();
+        assert!(result.output.unwrap().contains("edited"));
+
+        // Undo
+        let undo_input = serde_json::json!({
+            "command": "undo_edit",
+            "path": file_path.to_str().unwrap()
+        })
+        .to_string();
+        let result = tool.execute(&undo_input, &mut ctx).await.unwrap();
+        assert!(result.output.unwrap().contains("undone"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_invalid_command() {
+        let tool = StrReplaceEditor::new();
+        let mut ctx = Context::new();
+
+        let input = serde_json::json!({
+            "command": "invalid",
+            "path": "/tmp/test"
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_execute_missing_command() {
+        let tool = StrReplaceEditor::new();
+        let mut ctx = Context::new();
+
+        let input = serde_json::json!({
+            "path": "/tmp/test"
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing required parameter: command"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_missing_path() {
+        let tool = StrReplaceEditor::new();
+        let mut ctx = Context::new();
+
+        let input = serde_json::json!({
+            "command": "view"
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing required parameter: path"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_relative_path() {
+        let tool = StrReplaceEditor::new();
+        let mut ctx = Context::new();
+
+        let input = serde_json::json!({
+            "command": "view",
+            "path": "relative/path"
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not an absolute path"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_invalid_json() {
+        let tool = StrReplaceEditor::new();
+        let mut ctx = Context::new();
+
+        let input = "not valid json";
+        let result = tool.execute(input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Invalid JSON input"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_create_missing_file_text() {
+        let tool = StrReplaceEditor::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let file_path = temp_dir.path().join("new_file.txt");
+        let mut ctx = Context::new();
+
+        let input = serde_json::json!({
+            "command": "create",
+            "path": file_path.to_str().unwrap()
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'file_text'"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_str_replace_missing_old_str() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let mut ctx = Context::new();
+
+        let input = serde_json::json!({
+            "command": "str_replace",
+            "path": temp.path().to_str().unwrap()
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'old_str'"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_insert_missing_params() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let mut ctx = Context::new();
+
+        // Missing insert_line
+        let input = serde_json::json!({
+            "command": "insert",
+            "path": temp.path().to_str().unwrap(),
+            "new_str": "text"
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'insert_line'"));
+
+        // Missing new_str
+        let input = serde_json::json!({
+            "command": "insert",
+            "path": temp.path().to_str().unwrap(),
+            "insert_line": 0
+        })
+        .to_string();
+        let result = tool.execute(&input, &mut ctx).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'new_str'"));
     }
 }
