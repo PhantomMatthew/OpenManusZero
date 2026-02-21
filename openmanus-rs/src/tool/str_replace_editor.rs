@@ -451,6 +451,96 @@ impl StrReplaceEditor {
 
         Ok(ToolResult::success(snippet))
     }
+
+    /// Handle insert command - insert text at a specific line
+    pub async fn handle_insert(
+        &self,
+        path: &PathBuf,
+        insert_line: i32,
+        new_str: &str,
+    ) -> Result<ToolResult, ToolError> {
+        // Check if file exists
+        if !Self::path_exists(path).await {
+            return Err(ToolError::ExecutionFailed(format!(
+                "File does not exist: {}",
+                path.display()
+            )));
+        }
+
+        // Read file content
+        let content = Self::read_file(path).await?;
+
+        // Split into lines
+        let lines: Vec<&str> = content.lines().collect();
+        let n_lines = lines.len() as i32;
+
+        // Validate insert_line is in range [0, n_lines]
+        if insert_line < 0 || insert_line > n_lines {
+            return Err(ToolError::InvalidInput(format!(
+                "insert_line {} is out of range. Valid range is [0, {}]",
+                insert_line, n_lines
+            )));
+        }
+
+        // Save original to history before modifying
+        self.save_history(path, content.clone()).await;
+
+        // Insert new_str lines at position (insert AFTER line number, 0 = beginning)
+        // Split new_str into lines
+        let new_lines: Vec<&str> = new_str.lines().collect();
+
+        // Build new content
+        let mut result_lines: Vec<String> = Vec::new();
+
+        // Add lines before insert point
+        for line in lines.iter().take(insert_line as usize) {
+            result_lines.push(line.to_string());
+        }
+
+        // Add new lines
+        for line in &new_lines {
+            result_lines.push(line.to_string());
+        }
+
+        // Add lines after insert point
+        for line in lines.iter().skip(insert_line as usize) {
+            result_lines.push(line.to_string());
+        }
+
+        let new_content = result_lines.join("\n");
+
+        // Write the new content
+        Self::write_file(path, &new_content).await?;
+
+        // Generate snippet preview
+        // Calculate the line where insertion occurred (1-indexed)
+        let insert_line_1indexed = if insert_line == 0 { 1 } else { insert_line + 1 };
+
+        // Create snippet showing context around insertion
+        let snippet_lines: Vec<&str> = new_content.lines().collect();
+        let total_new_lines = snippet_lines.len();
+
+        let preview_start = (insert_line_1indexed as usize).saturating_sub(SNIPPET_LINES);
+        let preview_end = (insert_line_1indexed as usize + new_lines.len() + SNIPPET_LINES).min(total_new_lines);
+
+        let mut snippet = String::new();
+        snippet.push_str(&format!(
+            "The file {} has been edited. Here's the result of running `cat -n` on a snippet of the edited file:\n",
+            path.display()
+        ));
+
+        for i in preview_start..preview_end {
+            let line_num = i + 1;
+            let marker = if i >= insert_line_1indexed as usize - 1 && i < insert_line_1indexed as usize + new_lines.len() - 1 {
+                " >>> "
+            } else {
+                "     "
+            };
+            snippet.push_str(&format!("{}{:5}\t{}\n", marker, line_num, snippet_lines[i]));
+        }
+
+        Ok(ToolResult::success(snippet))
+    }
 }
 
 impl Default for StrReplaceEditor {
@@ -851,5 +941,50 @@ mod tests {
 
         let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
         assert_eq!(content, "Hi World!");
+    }
+
+    #[tokio::test]
+    async fn test_insert_at_beginning() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "line2\nline3").await.unwrap();
+
+        let result = tool
+            .handle_insert(&temp.path().to_path_buf(), 0, "line1")
+            .await
+            .unwrap();
+
+        assert!(result.output.unwrap().contains("edited"));
+
+        let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(content, "line1\nline2\nline3");
+    }
+
+    #[tokio::test]
+    async fn test_insert_in_middle() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "line1\nline3").await.unwrap();
+
+        let result = tool
+            .handle_insert(&temp.path().to_path_buf(), 1, "line2")
+            .await
+            .unwrap();
+
+        let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(content, "line1\nline2\nline3");
+    }
+
+    #[tokio::test]
+    async fn test_insert_invalid_line() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "line1").await.unwrap();
+
+        let result = tool
+            .handle_insert(&temp.path().to_path_buf(), 10, "new line")
+            .await;
+
+        assert!(result.is_err());
     }
 }
