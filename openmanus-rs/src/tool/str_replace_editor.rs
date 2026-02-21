@@ -307,6 +307,32 @@ impl StrReplaceEditor {
             self.view_file(path, view_range).await
         }
     }
+
+    /// Handle create command - create a new file
+    pub async fn handle_create(
+        &self,
+        path: &PathBuf,
+        file_text: &str,
+    ) -> Result<ToolResult, ToolError> {
+        // Check if file already exists
+        if Self::path_exists(path).await {
+            return Err(ToolError::InvalidInput(format!(
+                "File already exists at: {}. Cannot overwrite files using command create.",
+                path.display()
+            )));
+        }
+
+        // Write the file
+        Self::write_file(path, file_text).await?;
+
+        // Save to history
+        self.save_history(path, file_text.to_string()).await;
+
+        Ok(ToolResult::success(format!(
+            "File created successfully at: {}",
+            path.display()
+        )))
+    }
 }
 
 impl Default for StrReplaceEditor {
@@ -595,5 +621,28 @@ mod tests {
             .handle_view(&PathBuf::from("/nonexistent/path"), None)
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_file() {
+        let tool = StrReplaceEditor::new();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = temp_dir.path().join("new_file.txt");
+
+        let result = tool.handle_create(&path, "Hello, World!").await.unwrap();
+        assert!(result.output.unwrap().contains("created successfully"));
+
+        let content = tokio::fs::read_to_string(&path).await.unwrap();
+        assert_eq!(content, "Hello, World!");
+    }
+
+    #[tokio::test]
+    async fn test_create_existing_file() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+
+        let result = tool.handle_create(&temp.path().to_path_buf(), "content").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already exists"));
     }
 }
