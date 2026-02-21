@@ -100,6 +100,89 @@ impl StrReplaceEditor {
             file_history: Arc::new(AsyncRwLock::new(HashMap::new())),
         }
     }
+
+    /// Truncate content if too long
+    fn maybe_truncate(content: &str) -> String {
+        if content.len() > MAX_RESPONSE_LEN {
+            format!("{}{}", &content[..MAX_RESPONSE_LEN], TRUNCATED_MESSAGE)
+        } else {
+            content.to_string()
+        }
+    }
+
+    /// Format file content with line numbers (cat -n style)
+    fn make_output(content: &str, descriptor: &str, init_line: usize) -> String {
+        let content = Self::maybe_truncate(content);
+        let content = content.replace('\t', "    "); // expandtabs
+
+        let numbered = content
+            .lines()
+            .enumerate()
+            .map(|(i, line)| format!("{:6}\t{}", i + init_line, line))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        format!(
+            "Here's the result of running `cat -n` on {}:\n{}\n",
+            descriptor, numbered
+        )
+    }
+
+    /// Validate that path is absolute
+    fn validate_absolute_path(path: &str) -> Result<PathBuf, ToolError> {
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Err(ToolError::InvalidInput(format!(
+                "The path {} is not an absolute path",
+                path.display()
+            )));
+        }
+        Ok(path)
+    }
+
+    /// Check if path exists
+    async fn path_exists(path: &PathBuf) -> bool {
+        tokio::fs::try_exists(path).await.unwrap_or(false)
+    }
+
+    /// Check if path is a directory
+    async fn is_directory(path: &PathBuf) -> bool {
+        tokio::fs::metadata(path)
+            .await
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+    }
+
+    /// Read file content
+    async fn read_file(path: &PathBuf) -> Result<String, ToolError> {
+        tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to read file: {}", e)))
+    }
+
+    /// Write file content
+    async fn write_file(path: &PathBuf, content: &str) -> Result<(), ToolError> {
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create directories: {}", e)))?;
+        }
+        tokio::fs::write(path, content)
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to write file: {}", e)))
+    }
+
+    /// Save file to history for undo
+    async fn save_history(&self, path: &PathBuf, content: String) {
+        let mut history = self.file_history.write().await;
+        history.entry(path.clone()).or_default().push(content);
+    }
+
+    /// Pop last history for undo
+    async fn pop_history(&self, path: &PathBuf) -> Option<String> {
+        let mut history = self.file_history.write().await;
+        history.get_mut(path).and_then(|h| h.pop())
+    }
 }
 
 impl Default for StrReplaceEditor {
@@ -323,5 +406,30 @@ mod tests {
         assert_eq!(input.command, Some(Command::View));
         assert_eq!(input.path, Some("/tmp/test.txt".to_string()));
         assert_eq!(input.view_range, Some(vec![1, 10]));
+    }
+
+    #[test]
+    fn test_maybe_truncate_short() {
+        let content = "short content";
+        let result = StrReplaceEditor::maybe_truncate(content);
+        assert_eq!(result, content);
+    }
+
+    #[test]
+    fn test_make_output() {
+        let content = "line1\nline2";
+        let result = StrReplaceEditor::make_output(content, "test.txt", 1);
+        assert!(result.contains("cat -n"));
+        assert!(result.contains("     1"));
+        assert!(result.contains("     2"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_absolute_path() {
+        let result = StrReplaceEditor::validate_absolute_path("/tmp/test.txt");
+        assert!(result.is_ok());
+
+        let result = StrReplaceEditor::validate_absolute_path("relative/path");
+        assert!(result.is_err());
     }
 }
