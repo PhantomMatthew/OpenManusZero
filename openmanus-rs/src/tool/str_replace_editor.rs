@@ -452,6 +452,26 @@ impl StrReplaceEditor {
         Ok(ToolResult::success(snippet))
     }
 
+    /// Handle undo_edit command - revert last edit
+    pub async fn handle_undo_edit(&self, path: &PathBuf) -> Result<ToolResult, ToolError> {
+        // Pop the last history entry
+        let old_content = self.pop_history(path).await.ok_or_else(|| {
+            ToolError::ExecutionFailed(format!(
+                "No edit history found for: {}",
+                path.display()
+            ))
+        })?;
+
+        // Write the old content back to the file
+        Self::write_file(path, &old_content).await?;
+
+        Ok(ToolResult::success(format!(
+            "Last edit to {} has been undone. Here's the result of running `cat -n` on the file:\n{}",
+            path.display(),
+            Self::make_output(&old_content, &path.display().to_string(), 1)
+        )))
+    }
+
     /// Handle insert command - insert text at a specific line
     pub async fn handle_insert(
         &self,
@@ -986,5 +1006,38 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_undo_edit() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let original = "original content";
+        tokio::fs::write(temp.path(), original).await.unwrap();
+
+        // First do a replace
+        tool.handle_str_replace(&temp.path().to_path_buf(), "original", Some("modified"))
+            .await
+            .unwrap();
+
+        let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(content, "modified content");
+
+        // Now undo
+        let result = tool.handle_undo_edit(&temp.path().to_path_buf()).await.unwrap();
+        assert!(result.output.unwrap().contains("undone"));
+
+        let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(content, original);
+    }
+
+    #[tokio::test]
+    async fn test_undo_no_history() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+
+        let result = tool.handle_undo_edit(&temp.path().to_path_buf()).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("No edit history"));
     }
 }
