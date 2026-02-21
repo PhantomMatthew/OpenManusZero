@@ -183,6 +183,130 @@ impl StrReplaceEditor {
         let mut history = self.file_history.write().await;
         history.get_mut(path).and_then(|h| h.pop())
     }
+
+    /// View directory contents using find command
+    async fn view_directory(&self, path: &PathBuf) -> Result<ToolResult, ToolError> {
+        let output = tokio::process::Command::new("find")
+            .arg(path)
+            .arg("-maxdepth")
+            .arg("2")
+            .arg("-not")
+            .arg("-path")
+            .arg("*/\\.*")
+            .output()
+            .await
+            .map_err(|e| ToolError::ExecutionFailed(format!("Failed to list directory: {}", e)))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        if !stderr.is_empty() {
+            return Ok(ToolResult::failure(stderr.to_string()));
+        }
+
+        Ok(ToolResult::success(format!(
+            "Here's the files and directories up to 2 levels deep in {}, excluding hidden items:\n{}\n",
+            path.display(),
+            stdout
+        )))
+    }
+
+    /// View file with optional line range
+    async fn view_file(
+        &self,
+        path: &PathBuf,
+        view_range: Option<Vec<i32>>,
+    ) -> Result<ToolResult, ToolError> {
+        // Check if file exists
+        if !Self::path_exists(path).await {
+            return Err(ToolError::ExecutionFailed(format!(
+                "File does not exist: {}",
+                path.display()
+            )));
+        }
+
+        // Read file content
+        let content = Self::read_file(path).await?;
+
+        // Handle view range
+        if let Some(range) = view_range {
+            if range.len() != 2 {
+                return Err(ToolError::InvalidInput(
+                    "view_range must have exactly 2 elements [start, end]".to_string(),
+                ));
+            }
+
+            let start = range[0];
+            let end = range[1];
+
+            if start < 1 {
+                return Err(ToolError::InvalidInput(
+                    "view_range start must be >= 1".to_string(),
+                ));
+            }
+
+            let lines: Vec<&str> = content.lines().collect();
+            let total_lines = lines.len() as i32;
+
+            // Calculate end line (handle -1 for end of file)
+            let end_line = if end == -1 { total_lines } else { end };
+
+            if end_line > total_lines {
+                return Err(ToolError::InvalidInput(format!(
+                    "view_range end ({}) exceeds file length ({})",
+                    end_line, total_lines
+                )));
+            }
+
+            if start > end_line {
+                return Err(ToolError::InvalidInput(format!(
+                    "view_range start ({}) > end ({})",
+                    start, end_line
+                )));
+            }
+
+            // Extract lines (convert to 0-indexed)
+            let start_idx = (start - 1) as usize;
+            let end_idx = end_line as usize;
+            let selected_lines: Vec<&str> = lines[start_idx..end_idx].to_vec();
+            let selected_content = selected_lines.join("\n");
+
+            Ok(ToolResult::success(Self::make_output(
+                &selected_content,
+                &format!("{}: [{}-{}]", path.display(), start, end_line),
+                start as usize,
+            )))
+        } else {
+            // Show full file
+            Ok(ToolResult::success(Self::make_output(
+                &content,
+                &path.display().to_string(),
+                1,
+            )))
+        }
+    }
+
+    /// Handle view command - dispatch based on path type
+    pub async fn handle_view(
+        &self,
+        path: &PathBuf,
+        view_range: Option<Vec<i32>>,
+    ) -> Result<ToolResult, ToolError> {
+        // Check if path exists
+        if !Self::path_exists(path).await {
+            return Err(ToolError::ExecutionFailed(format!(
+                "Path does not exist: {}",
+                path.display()
+            )));
+        }
+
+        // Check if path is a directory or file
+        if Self::is_directory(path).await {
+            self.view_directory(path).await
+        } else {
+            self.view_file(path, view_range).await
+        }
+    }
 }
 
 impl Default for StrReplaceEditor {
@@ -430,6 +554,46 @@ mod tests {
         assert!(result.is_ok());
 
         let result = StrReplaceEditor::validate_absolute_path("relative/path");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_view_file_full() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let content = "line1\nline2\nline3";
+        tokio::fs::write(temp.path(), content).await.unwrap();
+
+        let result = tool
+            .handle_view(&temp.path().to_path_buf(), None)
+            .await
+            .unwrap();
+        assert!(result.output.unwrap().contains("line1"));
+    }
+
+    #[tokio::test]
+    async fn test_view_file_range() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let content = "line1\nline2\nline3\nline4\nline5";
+        tokio::fs::write(temp.path(), content).await.unwrap();
+
+        let result = tool
+            .handle_view(&temp.path().to_path_buf(), Some(vec![2, 4]))
+            .await
+            .unwrap();
+        let output = result.output.unwrap();
+        assert!(output.contains("line2"));
+        assert!(output.contains("line3"));
+        assert!(!output.contains("line1"));
+    }
+
+    #[tokio::test]
+    async fn test_view_nonexistent_file() {
+        let tool = StrReplaceEditor::new();
+        let result = tool
+            .handle_view(&PathBuf::from("/nonexistent/path"), None)
+            .await;
         assert!(result.is_err());
     }
 }
