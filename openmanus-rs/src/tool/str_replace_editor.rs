@@ -57,6 +57,36 @@ impl std::str::FromStr for Command {
     }
 }
 
+/// Parsed input for StrReplaceEditor
+#[derive(Debug, Default)]
+struct EditorInput {
+    command: Option<Command>,
+    path: Option<String>,
+    file_text: Option<String>,
+    old_str: Option<String>,
+    new_str: Option<String>,
+    insert_line: Option<i32>,
+    view_range: Option<Vec<i32>>,
+}
+
+impl EditorInput {
+    fn from_json(json: &serde_json::Value) -> Self {
+        Self {
+            command: json.get("command")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok()),
+            path: json.get("path").and_then(|v| v.as_str()).map(String::from),
+            file_text: json.get("file_text").and_then(|v| v.as_str()).map(String::from),
+            old_str: json.get("old_str").and_then(|v| v.as_str()).map(String::from),
+            new_str: json.get("new_str").and_then(|v| v.as_str()).map(String::from),
+            insert_line: json.get("insert_line").and_then(|v| v.as_i64()).map(|i| i as i32),
+            view_range: json.get("view_range")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_i64().map(|i| i as i32)).collect()),
+        }
+    }
+}
+
 /// File editing tool with undo support
 pub struct StrReplaceEditor {
     /// File history for undo (path -> list of previous contents)
@@ -280,5 +310,18 @@ mod tests {
         let schema = schema.unwrap();
         assert!(schema.properties.contains_key("command"));
         assert!(schema.properties.contains_key("path"));
+    }
+
+    #[test]
+    fn test_parse_editor_input() {
+        let json = serde_json::json!({
+            "command": "view",
+            "path": "/tmp/test.txt",
+            "view_range": [1, 10]
+        });
+        let input = EditorInput::from_json(&json);
+        assert_eq!(input.command, Some(Command::View));
+        assert_eq!(input.path, Some("/tmp/test.txt".to_string()));
+        assert_eq!(input.view_range, Some(vec![1, 10]));
     }
 }
