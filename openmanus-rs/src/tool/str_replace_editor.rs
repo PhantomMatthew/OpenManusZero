@@ -333,6 +333,124 @@ impl StrReplaceEditor {
             path.display()
         )))
     }
+
+    /// Generate a snippet preview showing lines around the edit
+    fn generate_snippet(content: &str, replacement_idx: usize, new_content: &str) -> String {
+        let lines: Vec<&str> = content.lines().collect();
+        let total_lines = lines.len();
+
+        // Find the line number where the replacement starts
+        let mut char_count = 0;
+        let mut start_line = 0;
+        for (i, line) in lines.iter().enumerate() {
+            if char_count + line.len() >= replacement_idx {
+                start_line = i;
+                break;
+            }
+            char_count += line.len() + 1; // +1 for newline
+        }
+
+        // Calculate the range to show (SNIPPET_LINES before and after)
+        let preview_start = start_line.saturating_sub(SNIPPET_LINES);
+        let preview_end = (start_line + SNIPPET_LINES + 1).min(total_lines);
+
+        // Build the snippet with line numbers
+        let mut snippet = String::new();
+        for i in preview_start..preview_end {
+            let line_num = i + 1;
+            let marker = if i == start_line { " >>> " } else { "     " };
+            snippet.push_str(&format!("{}{:5}\t{}\n", marker, line_num, lines[i]));
+        }
+
+        format!(
+            "The file {} has been edited. Here's the result of running `cat -n` on a snippet of the edited file:\n{}",
+            new_content, snippet
+        )
+    }
+
+    /// Handle str_replace command - replace unique string in file
+    pub async fn handle_str_replace(
+        &self,
+        path: &PathBuf,
+        old_str: &str,
+        new_str: Option<&str>,
+    ) -> Result<ToolResult, ToolError> {
+        // Check if file exists
+        if !Self::path_exists(path).await {
+            return Err(ToolError::ExecutionFailed(format!(
+                "File does not exist: {}",
+                path.display()
+            )));
+        }
+
+        // Read file content
+        let content = Self::read_file(path).await?;
+
+        // Expand tabs for consistent matching
+        let content_expanded = content.replace('\t', "    ");
+        let old_str_expanded = old_str.replace('\t', "    ");
+
+        // Count occurrences and find their line numbers
+        let mut occurrences: Vec<usize> = Vec::new();
+        let mut line_numbers: Vec<usize> = Vec::new();
+        let lines: Vec<&str> = content_expanded.lines().collect();
+
+        let mut search_start = 0;
+        while let Some(pos) = content_expanded[search_start..].find(&old_str_expanded) {
+            let abs_pos = search_start + pos;
+
+            // Find line number for this occurrence
+            let mut char_count = 0;
+            for (line_idx, line) in lines.iter().enumerate() {
+                if char_count + line.len() >= abs_pos {
+                    line_numbers.push(line_idx + 1); // 1-indexed
+                    break;
+                }
+                char_count += line.len() + 1; // +1 for newline
+            }
+
+            occurrences.push(abs_pos);
+            search_start = abs_pos + old_str_expanded.len();
+        }
+
+        // Validate occurrence count
+        if occurrences.is_empty() {
+            return Err(ToolError::InvalidInput(format!(
+                "The string '{}' did not appear verbatim in {}.",
+                old_str, path.display()
+            )));
+        }
+
+        if occurrences.len() > 1 {
+            return Err(ToolError::InvalidInput(format!(
+                "Multiple occurrences of '{}' found in {} at lines: {}. Please ensure the string is unique.",
+                old_str,
+                path.display(),
+                line_numbers.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ")
+            )));
+        }
+
+        // Perform the replacement
+        let replacement_pos = occurrences[0];
+        let new_str_text = new_str.unwrap_or("");
+        let new_content = format!(
+            "{}{}{}",
+            &content_expanded[..replacement_pos],
+            new_str_text,
+            &content_expanded[replacement_pos + old_str_expanded.len()..]
+        );
+
+        // Save original to history before modifying
+        self.save_history(path, content.clone()).await;
+
+        // Write the new content
+        Self::write_file(path, &new_content).await?;
+
+        // Generate snippet preview
+        let snippet = Self::generate_snippet(&new_content, replacement_pos, &path.display().to_string());
+
+        Ok(ToolResult::success(snippet))
+    }
 }
 
 impl Default for StrReplaceEditor {
@@ -644,5 +762,94 @@ mod tests {
         let result = tool.handle_create(&temp.path().to_path_buf(), "content").await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_unique() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "Hello, World!\nGoodbye, World!").await.unwrap();
+
+        let result = tool
+            .handle_str_replace(&temp.path().to_path_buf(), "Hello", Some("Hi"))
+            .await
+            .unwrap();
+
+        assert!(result.output.unwrap().contains("edited"));
+
+        let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(content, "Hi, World!\nGoodbye, World!");
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_not_found() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "Hello, World!").await.unwrap();
+
+        let result = tool
+            .handle_str_replace(&temp.path().to_path_buf(), "NotExist", Some("New"))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("did not appear verbatim"));
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_multiple_occurrences() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "foo bar foo").await.unwrap();
+
+        let result = tool
+            .handle_str_replace(&temp.path().to_path_buf(), "foo", Some("baz"))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Multiple occurrences"));
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_with_none_new_str() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "Hello, World!").await.unwrap();
+
+        let result = tool
+            .handle_str_replace(&temp.path().to_path_buf(), "Hello, ", None)
+            .await
+            .unwrap();
+
+        assert!(result.output.unwrap().contains("edited"));
+
+        let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(content, "World!");
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_nonexistent_file() {
+        let tool = StrReplaceEditor::new();
+        let result = tool
+            .handle_str_replace(&PathBuf::from("/nonexistent/path"), "old", Some("new"))
+            .await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn test_str_replace_with_tabs() {
+        let tool = StrReplaceEditor::new();
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        tokio::fs::write(temp.path(), "Hello\tWorld!").await.unwrap();
+
+        let result = tool
+            .handle_str_replace(&temp.path().to_path_buf(), "Hello\t", Some("Hi "))
+            .await
+            .unwrap();
+
+        assert!(result.output.unwrap().contains("edited"));
+
+        let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
+        assert_eq!(content, "Hi World!");
     }
 }
