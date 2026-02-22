@@ -47,7 +47,7 @@
 | SandboxAgent | `app/agent/sandbox_agent.py` | 沙箱执行代理 | 中 |
 | **Tool系统** | | | |
 | StrReplaceEditor | `app/tool/str_replace_editor.py` | 字符串替换编辑器 | ✅ |
-| WebSearch | `app/tool/web_search.py` | 网页搜索工具 | 高 |
+| WebSearch | `app/tool/web_search.py` | 网页搜索工具 | ✅ |
 | Crawl4aiTool | `app/tool/crawl4ai.py` | 网页爬虫工具 | 中 |
 | ComputerUseTool | `app/tool/computer_use_tool.py` | 电脑控制工具 | 中 |
 | PlanningTool | `app/tool/planning.py` | 规划工具 | 中 |

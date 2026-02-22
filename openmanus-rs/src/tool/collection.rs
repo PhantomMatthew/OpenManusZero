@@ -108,15 +108,16 @@ impl ToolCollection {
         self.tools.values().cloned().collect()
     }
 
-    /// Create a tool collection with default tools (bash, terminate, file, str_replace_editor)
+    /// Create a tool collection with default tools (bash, terminate, file, str_replace_editor, web_search)
     pub fn with_defaults() -> Self {
-        use crate::tool::{BashTool, FileTool, StrReplaceEditor, TerminateTool};
+        use crate::tool::{BashTool, FileTool, StrReplaceEditor, TerminateTool, WebSearchTool};
 
         let mut collection = Self::new();
         collection.add_tool(Arc::new(BashTool::new()));
         collection.add_tool(Arc::new(TerminateTool::new()));
         collection.add_tool(Arc::new(FileTool::new()));
         collection.add_tool(Arc::new(StrReplaceEditor::new()));
+        collection.add_tool(Arc::new(WebSearchTool::with_default_engines()));
         collection
     }
 }
