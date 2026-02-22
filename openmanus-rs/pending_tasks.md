@@ -41,7 +41,7 @@
 |------|---------------|------|--------|
 | **Agent系统** | | | |
 | BrowserAgent | `app/agent/browser.py` | 专用浏览器代理，自动网页交互 | 高 |
-| SWEAgent | `app/agent/swe.py` | 软件工程代理，代码修复 | 高 |
+| SWEAgent | `app/agent/swe.py` | 软件工程代理，代码修复 | ✅ |
 | MCPAgent | `app/agent/mcp.py` | MCP协议代理 | 中 |
 | DataAnalysisAgent | `app/agent/data_analysis.py` | 数据分析代理 | 中 |
 | SandboxAgent | `app/agent/sandbox_agent.py` | 沙箱执行代理 | 中 |
