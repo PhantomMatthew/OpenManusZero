@@ -119,3 +119,56 @@ impl super::Agent for SweAgent {
         self.agent.cleanup().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::Agent;
+    use crate::llm::MockLlmClient;
+
+    #[tokio::test]
+    async fn test_swe_new() {
+        let swe = SweAgent::new().await;
+        assert!(swe.is_ok());
+        let swe = swe.unwrap();
+        assert_eq!(swe.name(), "swe");
+    }
+
+    #[test]
+    fn test_swe_with_llm() {
+        let llm = Arc::new(MockLlmClient::new("gpt-4"));
+        let swe = SweAgent::with_llm(llm);
+        assert_eq!(swe.name(), "swe");
+        assert_eq!(swe.state(), AgentState::Idle);
+    }
+
+    #[test]
+    fn test_swe_has_tools() {
+        let llm = Arc::new(MockLlmClient::new("gpt-4"));
+        let swe = SweAgent::with_llm(llm);
+        assert!(!swe.agent.tools().is_empty());
+        assert!(swe.agent.tools().has_tool("bash"));
+        assert!(swe.agent.tools().has_tool("str_replace_editor"));
+        assert!(swe.agent.tools().has_tool("terminate"));
+    }
+
+    #[tokio::test]
+    async fn test_swe_run() {
+        let llm = Arc::new(MockLlmClient::new("gpt-4"));
+        llm.set_text_response("I will help you fix the bug.");
+
+        let mut swe = SweAgent::with_llm(llm);
+        let result = swe.run("Fix the bug in main.rs").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_swe_cleanup() {
+        let llm = Arc::new(MockLlmClient::new("gpt-4"));
+        let mut swe = SweAgent::with_llm(llm);
+        swe.agent.base_mut().update_memory(crate::schema::Message::user("test"));
+
+        swe.cleanup().await.unwrap();
+        assert!(swe.agent.base().memory().is_empty());
+    }
+}
