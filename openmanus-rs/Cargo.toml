@@ -1,0 +1,124 @@
+[package]
+name = "openmanus"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.72"  # MSRV
+authors = ["OpenManus Team"]
+description = "A versatile AI agent framework written in Rust"
+license = "MIT"
+repository = "https://github.com/FoundationAgents/OpenManus"
+keywords = ["ai", "agent", "llm", "automation"]
+categories = ["asynchronous", "web-programming"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = { version = "0.8", optional = true }
+
+# MCP (Model Context Protocol)
+rmcp = { version = "0.16", features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-server"], optional = true }
+
+# WebSocket support
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"], optional = true }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"], default-features = false }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Concurrency
+parking_lot = "0.12"
+dashmap = "5"
+
+# Browser automation (optional)
+chromiumoxide = { version = "0.5", features = ["tokio-runtime"], optional = true }
+
+# HTTP server (optional)
+axum = { version = "0.7", optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["trace", "cors"], optional = true }
+
+# WASM sandbox (optional)
+wasmtime = { version = "18", optional = true }
+
+# Configuration
+toml = "0.8"
+
+# Utils
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+bytes = "1"
+pin-project-lite = "0.2"
+base64 = "0.22"
+which = "6"
+
+# Token counting
+tiktoken-rs = "0.5"
+
+# HTML parsing for web scraping
+scraper = "0.19"
+
+# Stream utilities
+tokio-stream = "0.1"
+
+[dev-dependencies]
+# Testing
+tokio-test = "0.4"
+rstest = "0.18"
+wiremock = "0.5"
+mockall = "0.12"
+proptest = "1"
+assert_cmd = "2"
+predicates = "3"
+criterion = { version = "0.5", features = ["async_tokio"] }
+tempfile = "3"
+
+# Coverage helper
+# tarpaulin is run as cargo subcommand
+
+[features]
+default = ["browser", "server", "mcp"]
+browser = ["chromiumoxide"]
+server = ["axum", "tower", "tower-http"]
+wasm-sandbox = ["wasmtime"]
+mcp = ["dep:rmcp", "dep:tokio-tungstenite", "schemars"]
+
+[[bin]]
+name = "openmanus"
+path = "src/main.rs"
+
+[[bench]]
+name = "agent_bench"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = 3
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.test]
+inherits = "dev"
+
+[profile.bench]
+inherits = "release"

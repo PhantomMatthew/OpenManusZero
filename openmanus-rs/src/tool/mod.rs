@@ -21,6 +21,7 @@ pub mod file_ops;
 pub mod python;
 pub mod str_replace_editor;
 pub mod terminate;
+pub mod web_search;
 
 // Re-export specific tool types
 pub use ask_human::AskHumanTool;
@@ -29,6 +30,7 @@ pub use file_ops::FileTool;
 pub use python::PythonTool;
 pub use str_replace_editor::StrReplaceEditor;
 pub use terminate::TerminateTool;
+pub use web_search::WebSearchTool;
 
 /// Re-export common tool types
 pub mod prelude {
