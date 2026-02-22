@@ -4,7 +4,7 @@ use crate::context::Context;
 use crate::tool::{Tool, ToolError, ToolParameter, ToolResult, ToolSchema};
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock as AsyncRwLock;
 
@@ -72,17 +72,35 @@ struct EditorInput {
 impl EditorInput {
     fn from_json(json: &serde_json::Value) -> Self {
         Self {
-            command: json.get("command")
+            command: json
+                .get("command")
                 .and_then(|v| v.as_str())
                 .and_then(|s| s.parse().ok()),
             path: json.get("path").and_then(|v| v.as_str()).map(String::from),
-            file_text: json.get("file_text").and_then(|v| v.as_str()).map(String::from),
-            old_str: json.get("old_str").and_then(|v| v.as_str()).map(String::from),
-            new_str: json.get("new_str").and_then(|v| v.as_str()).map(String::from),
-            insert_line: json.get("insert_line").and_then(|v| v.as_i64()).map(|i| i as i32),
-            view_range: json.get("view_range")
+            file_text: json
+                .get("file_text")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            old_str: json
+                .get("old_str")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            new_str: json
+                .get("new_str")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            insert_line: json
+                .get("insert_line")
+                .and_then(|v| v.as_i64())
+                .map(|i| i as i32),
+            view_range: json
+                .get("view_range")
                 .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_i64().map(|i| i as i32)).collect()),
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_i64().map(|i| i as i32))
+                        .collect()
+                }),
         }
     }
 }
@@ -163,9 +181,9 @@ impl StrReplaceEditor {
     /// Write file content
     async fn write_file(path: &PathBuf, content: &str) -> Result<(), ToolError> {
         if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(|e| ToolError::ExecutionFailed(format!("Failed to create directories: {}", e)))?;
+            tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                ToolError::ExecutionFailed(format!("Failed to create directories: {}", e))
+            })?;
         }
         tokio::fs::write(path, content)
             .await
@@ -173,13 +191,13 @@ impl StrReplaceEditor {
     }
 
     /// Save file to history for undo
-    async fn save_history(&self, path: &PathBuf, content: String) {
+    async fn save_history(&self, path: &Path, content: String) {
         let mut history = self.file_history.write().await;
-        history.entry(path.clone()).or_default().push(content);
+        history.entry(path.to_path_buf()).or_default().push(content);
     }
 
     /// Pop last history for undo
-    async fn pop_history(&self, path: &PathBuf) -> Option<String> {
+    async fn pop_history(&self, path: &Path) -> Option<String> {
         let mut history = self.file_history.write().await;
         history.get_mut(path).and_then(|h| h.pop())
     }
@@ -356,10 +374,15 @@ impl StrReplaceEditor {
 
         // Build the snippet with line numbers
         let mut snippet = String::new();
-        for i in preview_start..preview_end {
+        for (i, line) in lines
+            .iter()
+            .enumerate()
+            .skip(preview_start)
+            .take(preview_end - preview_start)
+        {
             let line_num = i + 1;
             let marker = if i == start_line { " >>> " } else { "     " };
-            snippet.push_str(&format!("{}{:5}\t{}\n", marker, line_num, lines[i]));
+            snippet.push_str(&format!("{}{:5}\t{}\n", marker, line_num, line));
         }
 
         format!(
@@ -417,7 +440,8 @@ impl StrReplaceEditor {
         if occurrences.is_empty() {
             return Err(ToolError::InvalidInput(format!(
                 "The string '{}' did not appear verbatim in {}.",
-                old_str, path.display()
+                old_str,
+                path.display()
             )));
         }
 
@@ -447,7 +471,8 @@ impl StrReplaceEditor {
         Self::write_file(path, &new_content).await?;
 
         // Generate snippet preview
-        let snippet = Self::generate_snippet(&new_content, replacement_pos, &path.display().to_string());
+        let snippet =
+            Self::generate_snippet(&new_content, replacement_pos, &path.display().to_string());
 
         Ok(ToolResult::success(snippet))
     }
@@ -456,10 +481,7 @@ impl StrReplaceEditor {
     pub async fn handle_undo_edit(&self, path: &PathBuf) -> Result<ToolResult, ToolError> {
         // Pop the last history entry
         let old_content = self.pop_history(path).await.ok_or_else(|| {
-            ToolError::ExecutionFailed(format!(
-                "No edit history found for: {}",
-                path.display()
-            ))
+            ToolError::ExecutionFailed(format!("No edit history found for: {}", path.display()))
         })?;
 
         // Write the old content back to the file
@@ -541,7 +563,8 @@ impl StrReplaceEditor {
         let total_new_lines = snippet_lines.len();
 
         let preview_start = (insert_line_1indexed as usize).saturating_sub(SNIPPET_LINES);
-        let preview_end = (insert_line_1indexed as usize + new_lines.len() + SNIPPET_LINES).min(total_new_lines);
+        let preview_end =
+            (insert_line_1indexed as usize + new_lines.len() + SNIPPET_LINES).min(total_new_lines);
 
         let mut snippet = String::new();
         snippet.push_str(&format!(
@@ -549,14 +572,21 @@ impl StrReplaceEditor {
             path.display()
         ));
 
-        for i in preview_start..preview_end {
+        for (i, line) in snippet_lines
+            .iter()
+            .enumerate()
+            .skip(preview_start)
+            .take(preview_end - preview_start)
+        {
             let line_num = i + 1;
-            let marker = if i >= insert_line_1indexed as usize - 1 && i < insert_line_1indexed as usize + new_lines.len() - 1 {
+            let marker = if i >= insert_line_1indexed as usize - 1
+                && i < insert_line_1indexed as usize + new_lines.len() - 1
+            {
                 " >>> "
             } else {
                 "     "
             };
-            snippet.push_str(&format!("{}{:5}\t{}\n", marker, line_num, snippet_lines[i]));
+            snippet.push_str(&format!("{}{:5}\t{}\n", marker, line_num, line));
         }
 
         Ok(ToolResult::success(snippet))
@@ -710,9 +740,8 @@ impl Tool for StrReplaceEditor {
 
     async fn execute(&self, input: &str, _ctx: &mut Context) -> Result<ToolResult, ToolError> {
         // Parse JSON input
-        let json: serde_json::Value = serde_json::from_str(input).map_err(|e| {
-            ToolError::InvalidInput(format!("Invalid JSON input: {}", e))
-        })?;
+        let json: serde_json::Value = serde_json::from_str(input)
+            .map_err(|e| ToolError::InvalidInput(format!("Invalid JSON input: {}", e)))?;
 
         // Parse into EditorInput
         let editor_input = EditorInput::from_json(&json);
@@ -789,7 +818,10 @@ mod tests {
     fn test_command_from_str() {
         assert_eq!("view".parse::<Command>().unwrap(), Command::View);
         assert_eq!("create".parse::<Command>().unwrap(), Command::Create);
-        assert_eq!("str_replace".parse::<Command>().unwrap(), Command::StrReplace);
+        assert_eq!(
+            "str_replace".parse::<Command>().unwrap(),
+            Command::StrReplace
+        );
         assert_eq!("insert".parse::<Command>().unwrap(), Command::Insert);
         assert_eq!("undo_edit".parse::<Command>().unwrap(), Command::UndoEdit);
     }
@@ -927,7 +959,9 @@ mod tests {
         let tool = StrReplaceEditor::new();
         let temp = tempfile::NamedTempFile::new().unwrap();
 
-        let result = tool.handle_create(&temp.path().to_path_buf(), "content").await;
+        let result = tool
+            .handle_create(&temp.path().to_path_buf(), "content")
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
     }
@@ -936,7 +970,9 @@ mod tests {
     async fn test_str_replace_unique() {
         let tool = StrReplaceEditor::new();
         let temp = tempfile::NamedTempFile::new().unwrap();
-        tokio::fs::write(temp.path(), "Hello, World!\nGoodbye, World!").await.unwrap();
+        tokio::fs::write(temp.path(), "Hello, World!\nGoodbye, World!")
+            .await
+            .unwrap();
 
         let result = tool
             .handle_str_replace(&temp.path().to_path_buf(), "Hello", Some("Hi"))
@@ -953,14 +989,19 @@ mod tests {
     async fn test_str_replace_not_found() {
         let tool = StrReplaceEditor::new();
         let temp = tempfile::NamedTempFile::new().unwrap();
-        tokio::fs::write(temp.path(), "Hello, World!").await.unwrap();
+        tokio::fs::write(temp.path(), "Hello, World!")
+            .await
+            .unwrap();
 
         let result = tool
             .handle_str_replace(&temp.path().to_path_buf(), "NotExist", Some("New"))
             .await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("did not appear verbatim"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("did not appear verbatim"));
     }
 
     #[tokio::test]
@@ -974,14 +1015,19 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Multiple occurrences"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Multiple occurrences"));
     }
 
     #[tokio::test]
     async fn test_str_replace_with_none_new_str() {
         let tool = StrReplaceEditor::new();
         let temp = tempfile::NamedTempFile::new().unwrap();
-        tokio::fs::write(temp.path(), "Hello, World!").await.unwrap();
+        tokio::fs::write(temp.path(), "Hello, World!")
+            .await
+            .unwrap();
 
         let result = tool
             .handle_str_replace(&temp.path().to_path_buf(), "Hello, ", None)
@@ -1008,7 +1054,9 @@ mod tests {
     async fn test_str_replace_with_tabs() {
         let tool = StrReplaceEditor::new();
         let temp = tempfile::NamedTempFile::new().unwrap();
-        tokio::fs::write(temp.path(), "Hello\tWorld!").await.unwrap();
+        tokio::fs::write(temp.path(), "Hello\tWorld!")
+            .await
+            .unwrap();
 
         let result = tool
             .handle_str_replace(&temp.path().to_path_buf(), "Hello\t", Some("Hi "))
@@ -1044,8 +1092,7 @@ mod tests {
         let temp = tempfile::NamedTempFile::new().unwrap();
         tokio::fs::write(temp.path(), "line1\nline3").await.unwrap();
 
-        let result = tool
-            .handle_insert(&temp.path().to_path_buf(), 1, "line2")
+        tool.handle_insert(&temp.path().to_path_buf(), 1, "line2")
             .await
             .unwrap();
 
@@ -1082,7 +1129,10 @@ mod tests {
         assert_eq!(content, "modified content");
 
         // Now undo
-        let result = tool.handle_undo_edit(&temp.path().to_path_buf()).await.unwrap();
+        let result = tool
+            .handle_undo_edit(&temp.path().to_path_buf())
+            .await
+            .unwrap();
         assert!(result.output.unwrap().contains("undone"));
 
         let content = tokio::fs::read_to_string(temp.path()).await.unwrap();
@@ -1171,7 +1221,10 @@ mod tests {
         .to_string();
         let result = tool.execute(&input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required parameter: command"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required parameter: command"));
     }
 
     #[tokio::test]
@@ -1185,7 +1238,10 @@ mod tests {
         .to_string();
         let result = tool.execute(&input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required parameter: path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required parameter: path"));
     }
 
     #[tokio::test]
@@ -1200,7 +1256,10 @@ mod tests {
         .to_string();
         let result = tool.execute(&input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not an absolute path"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("not an absolute path"));
     }
 
     #[tokio::test]
@@ -1211,7 +1270,10 @@ mod tests {
         let input = "not valid json";
         let result = tool.execute(input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid JSON input"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid JSON input"));
     }
 
     #[tokio::test]
@@ -1228,7 +1290,10 @@ mod tests {
         .to_string();
         let result = tool.execute(&input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'file_text'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required parameter 'file_text'"));
     }
 
     #[tokio::test]
@@ -1244,7 +1309,10 @@ mod tests {
         .to_string();
         let result = tool.execute(&input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'old_str'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required parameter 'old_str'"));
     }
 
     #[tokio::test]
@@ -1262,7 +1330,10 @@ mod tests {
         .to_string();
         let result = tool.execute(&input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'insert_line'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required parameter 'insert_line'"));
 
         // Missing new_str
         let input = serde_json::json!({
@@ -1273,6 +1344,9 @@ mod tests {
         .to_string();
         let result = tool.execute(&input, &mut ctx).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Missing required parameter 'new_str'"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing required parameter 'new_str'"));
     }
 }

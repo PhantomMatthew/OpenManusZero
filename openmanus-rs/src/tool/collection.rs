@@ -110,7 +110,7 @@ impl ToolCollection {
 
     /// Create a tool collection with default tools (bash, terminate, file, str_replace_editor)
     pub fn with_defaults() -> Self {
-        use crate::tool::{BashTool, TerminateTool, FileTool, StrReplaceEditor};
+        use crate::tool::{BashTool, FileTool, StrReplaceEditor, TerminateTool};
 
         let mut collection = Self::new();
         collection.add_tool(Arc::new(BashTool::new()));
