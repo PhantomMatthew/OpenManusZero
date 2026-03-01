@@ -1,4 +1,4 @@
-# OpenManus Rust
+# OpenManusZero
 
 A versatile AI agent framework written in Rust. This is a Rust rewrite of the Python [OpenManus](https://github.com/FoundationAgents/OpenManus) project. Currently it is in early stage for overall testing.
 
@@ -22,8 +22,8 @@ A versatile AI agent framework written in Rust. This is a Rust rewrite of the Py
 
 ```bash
 # Clone the repository
-git clone https://github.com/FoundationAgents/OpenManus.git
-cd OpenManus
+git clone https://github.com/PhantomMatthew/OpenManusZero.git
+cd OpenManusZero
 
 # Build
 cargo build --release
@@ -44,40 +44,40 @@ cargo install --path .
 
 ```bash
 # Set your API key
-export OPENMANUS_LLM_API_KEY="your-api-key"
+export OPENMANUS_ZERO_LLM_API_KEY="your-api-key"
 
 # Run with a prompt
-openmanus run --prompt "Search for Rust tutorials and summarize them"
+openmanus-zero run --prompt "Search for Rust tutorials and summarize them"
 
 # Or run interactively
-openmanus interactive
+openmanus-zero interactive
 ```
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENMANUS_LLM_BASE_URL` | LLM API base URL | `https://api.openai.com/v1` |
-| `OPENMANUS_LLM_API_KEY` | LLM API key | (required) |
-| `OPENMANUS_LLM_MODEL` | Model to use | `gpt-4` |
+| `OPENMANUS_ZERO_LLM_BASE_URL` | LLM API base URL | `https://api.openai.com/v1` |
+| `OPENMANUS_ZERO_LLM_API_KEY` | LLM API key | (required) |
+| `OPENMANUS_ZERO_LLM_MODEL` | Model to use | `gpt-4` |
 
 ## Usage
 
 ```bash
 # Single prompt mode
-openmanus run -p "Your task here"
+openmanus-zero run -p "Your task here"
 
 # Interactive mode
-openmanus interactive
+openmanus-zero interactive
 
 # Flow orchestration mode
-openmanus flow -t "Complex multi-step task"
+openmanus-zero flow -t "Complex multi-step task"
 
 # With debug logging
-openmanus --debug run -p "Debug this"
+openmanus-zero --debug run -p "Debug this"
 
 # Using mock LLM (for testing)
-openmanus --mock run -p "Test prompt"
+openmanus-zero --mock run -p "Test prompt"
 ```
 
 ## Architecture

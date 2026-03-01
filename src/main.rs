@@ -20,17 +20,17 @@ struct Args {
     #[arg(
         short,
         long,
-        env = "OPENMANUS_LLM_BASE_URL",
+        env = "OPENMANUS_ZERO_LLM_BASE_URL",
         default_value = "https://api.openai.com/v1"
     )]
     base_url: String,
 
     /// LLM API key
-    #[arg(short, long, env = "OPENMANUS_LLM_API_KEY")]
+    #[arg(short, long, env = "OPENMANUS_ZERO_LLM_API_KEY")]
     api_key: Option<String>,
 
     /// LLM model to use
-    #[arg(short, long, env = "OPENMANUS_LLM_MODEL", default_value = "gpt-4")]
+    #[arg(short, long, env = "OPENMANUS_ZERO_LLM_MODEL", default_value = "gpt-4")]
     model: String,
 
     /// Enable debug logging

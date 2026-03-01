@@ -1,12 +1,12 @@
 [package]
-name = "openmanus"
+name = "openmanus-zero"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.72"  # MSRV
-authors = ["OpenManus Team"]
+authors = ["OpenManusZero Team"]
 description = "A versatile AI agent framework written in Rust"
 license = "MIT"
-repository = "https://github.com/FoundationAgents/OpenManus"
+repository = "https://github.com/PhantomMatthew/OpenManusZero"
 keywords = ["ai", "agent", "llm", "automation"]
 categories = ["asynchronous", "web-programming"]
 
@@ -128,8 +128,12 @@ bedrock = []
 daytona = []
 computer-use = ["enigo", "screenshots", "image", "png"]
 
-[[bin]]
+[lib]
 name = "openmanus"
+path = "src/lib.rs"
+
+[[bin]]
+name = "openmanus-zero"
 path = "src/main.rs"
 
 [[bench]]
