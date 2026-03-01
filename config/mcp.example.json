@@ -1,0 +1,44 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schema/mcp-config.json",
+  "servers": {
+    "filesystem": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+    },
+    "github": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_TOKEN": "your-github-token-here"
+      }
+    },
+    "postgres": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["mcp-server-postgres"],
+      "env": {
+        "DATABASE_URL": "postgresql://user:pass@localhost/db"
+      }
+    },
+    "custom-http": {
+      "type": "sse",
+      "url": "http://localhost:3000/sse",
+      "headers": {
+        "Authorization": "Bearer your-token-here"
+      }
+    },
+    "custom-websocket": {
+      "type": "websocket",
+      "url": "ws://localhost:3000/mcp",
+      "headers": {}
+    }
+  },
+  "server": {
+    "enabled": true,
+    "name": "openmanus",
+    "host": "127.0.0.1",
+    "port": 8080
+  }
+}
