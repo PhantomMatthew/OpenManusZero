@@ -77,7 +77,7 @@ which = "6"
 tiktoken-rs = "0.5"
 
 # HTML parsing for web scraping
-scraper = "0.19"
+scraper = "0.25"
 
 # URL encoding
 urlencoding = "2.1"
