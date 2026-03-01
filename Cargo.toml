@@ -52,7 +52,7 @@ chromiumoxide = { version = "0.5", features = ["tokio-runtime"], optional = true
 # HTTP server (optional)
 axum = { version = "0.7", optional = true }
 tower = { version = "0.4", optional = true }
-tower-http = { version = "0.5", features = ["trace", "cors"], optional = true }
+tower-http = { version = "0.6", features = ["trace", "cors"], optional = true }
 
 # WASM sandbox (optional)
 wasmtime = { version = "18", optional = true }
