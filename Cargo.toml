@@ -63,7 +63,7 @@ bollard = { version = "0.17", optional = true }
 tar = { version = "0.4", optional = true }
 
 # Configuration
-toml = "0.8"
+toml = "1.0"
 
 # Utils
 uuid = { version = "1", features = ["v4", "serde"] }
