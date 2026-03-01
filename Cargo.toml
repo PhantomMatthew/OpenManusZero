@@ -26,7 +26,7 @@ schemars = { version = "0.8", optional = true }
 rmcp = { version = "0.16", features = ["client", "server", "transport-child-process", "transport-io", "transport-streamable-http-client", "transport-streamable-http-server"], optional = true }
 
 # WebSocket support
-tokio-tungstenite = { version = "0.21", features = ["rustls-tls-webpki-roots"], optional = true }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 
 # HTTP client
 reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"], default-features = false }
