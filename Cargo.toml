@@ -44,7 +44,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Concurrency
 parking_lot = "0.12"
-dashmap = "5"
+dashmap = "6"
 
 # Browser automation (optional)
 chromiumoxide = { version = "0.5", features = ["tokio-runtime"], optional = true }
